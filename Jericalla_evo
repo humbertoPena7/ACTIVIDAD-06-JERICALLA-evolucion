@@ -1,0 +1,137 @@
+module BancoRegistros (
+    input clk,
+    input we,
+    input [4:0] ra1, ra2, wa,
+    input [31:0] wd,
+    output [31:0] rd1, rd2
+);
+    reg [31:0] registros [0:31];
+    
+    always @(posedge clk) begin
+        if (we)
+            registros[wa] <= wd;
+    end
+    
+    assign rd1 = registros[ra1];
+    assign rd2 = registros[ra2];
+endmodule
+
+module Control (
+    input clk,
+    input [3:0] opcode,
+    output reg [3:0] aluOp,
+    output reg memWrite, regWrite
+);
+    always @(posedge clk) begin
+        case(opcode)
+            4'b0000: begin aluOp = 4'b0000; regWrite = 1; memWrite = 0; end // ADD
+            4'b0001: begin aluOp = 4'b0001; regWrite = 1; memWrite = 0; end // SUB
+            4'b0010: begin aluOp = 4'b0010; regWrite = 1; memWrite = 0; end // AND
+            4'b0011: begin aluOp = 4'b0011; regWrite = 1; memWrite = 0; end // OR
+            4'b0100: begin aluOp = 4'b0100; regWrite = 1; memWrite = 0; end // SLT
+            4'b0101: begin aluOp = 4'b0101; regWrite = 1; memWrite = 0; end // NOR
+            default: begin aluOp = 4'b0000; regWrite = 0; memWrite = 0; end
+        endcase
+    end
+endmodule
+
+module DEMUX (
+    input [31:0] in,
+    input sel,
+    output reg [31:0] out1, out2
+);
+    always @(*) begin
+        if (sel) begin
+            out1 = in;
+            out2 = 0;
+        end else begin
+            out1 = 0;
+            out2 = in;
+        end
+    end
+endmodule
+
+module ALU (
+    input [31:0] a, b,
+    input [3:0] op,
+    output reg [31:0] result
+);
+    always @(*) begin
+        case(op)
+            4'b0000: result = a + b; // ADD
+            4'b0001: result = a - b; // SUB
+            4'b0010: result = a & b; // AND
+            4'b0011: result = a | b; // OR
+            4'b0100: result = (a < b) ? 32'b1 : 32'b0; // SLT (Set on Less Than)
+            4'b0101: result = ~(a | b); // NOR
+            default: result = 0;
+        endcase
+    end
+endmodule
+
+module Buffer (
+    input [31:0] in,
+    output reg [31:0] out
+);
+    always @(*) begin
+        out = in;
+    end
+endmodule
+
+module MemoriaDatos (
+    input clk,
+    input we,
+    input [4:0] addr,
+    input [31:0] wd,
+    output [31:0] rd
+);
+    reg [31:0] memoria [0:31];
+    
+    always @(posedge clk) begin
+        if (we)
+            memoria[addr] <= wd;
+    end
+    
+    assign rd = memoria[addr];
+endmodule
+
+module Procesador (
+    input clk,
+    input [3:0] opcode,
+    input [4:0] ra1, ra2, wa, addr,
+    output [31:0] dataOut
+);
+    wire [31:0] rd1, rd2, aluResult, buffer1Out, buffer2Out, memData, demuxOut1, demuxOut2;
+    wire [3:0] aluOp;
+    wire regWrite, memWrite;
+    
+    BancoRegistros br (
+        .clk(clk), .we(regWrite), .ra1(ra1), .ra2(ra2), .wa(wa), .wd(buffer2Out), .rd1(rd1), .rd2(rd2)
+    );
+    
+    Control control (
+        .clk(clk), .opcode(opcode), .aluOp(aluOp), .regWrite(regWrite), .memWrite(memWrite)
+    );
+    
+    Buffer buffer1 (
+        .in(rd1), .out(buffer1Out)
+    );
+    
+    DEMUX demux (
+        .in(buffer1Out), .sel(memWrite), .out1(demuxOut1), .out2(demuxOut2)
+    );
+    
+    ALU alu (
+        .a(demuxOut1), .b(rd2), .op(aluOp), .result(aluResult)
+    );
+    
+    Buffer buffer2 (
+        .in(aluResult), .out(buffer2Out)
+    );
+    
+    MemoriaDatos memoria (
+        .clk(clk), .we(memWrite), .addr(addr), .wd(buffer2Out), .rd(memData)
+    );
+    
+    assign dataOut = memData;
+endmodule
